@@ -1,0 +1,35 @@
+version: '3'
+
+services:
+
+  server1:
+    build: .
+    environment:
+      - PORT=1370
+    ports:
+      - "1370:1370"
+
+  server2:
+    build: .
+    environment:
+      - PORT=1380
+    ports:
+      - "1380:1380"
+
+  server3:
+    build: .
+    environment:
+      - PORT=1390
+    ports:
+      - "1390:1390"
+
+  loadbalancer:
+    build:
+      context: .
+      dockerfile: Dockerfile.lb
+    ports:
+      - "8080:8080"
+    depends_on:
+      - server1
+      - server2
+      - server3

@@ -1,0 +1,10 @@
+FROM node:18
+
+
+WORKDIR /app
+
+
+COPY loadbalancer.js .
+
+
+CMD ["node", "loadbalancer.js"]
