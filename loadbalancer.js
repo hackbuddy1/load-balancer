@@ -1,6 +1,7 @@
 const http = require('http');  // require NOde.js ka module system hain jaise python me use krte hain import ussi tarah node.js me use krte hain require.
 
-const servers = [{ host: 'server1', port: 1370, working: true, requests: 0}, {host: 'server2', port: 1380, working: true, requests: 0}, {host: 'server3', port: 1390, working: true, requests: 0}];
+//using weighted round robin algorithm. powerful server ko zyada traffic dena.
+const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3}, {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2}, {host: 'server3', port: 1390, working: true, requests: 0, weight: 1}];
 // server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
 let curr =0;
 
@@ -159,18 +160,27 @@ function healthCheck(server){
 }
 
 function updateServer(){
+    // working servers lenge, unme se ek select krenge, usko request bhejenge.
     const workingServers = servers.filter(server => server.working === true);
 
     if(workingServers.length === 0){
         return null;
     }
 
-    const selectedServer = workingServers[curr % workingServers.length];
-    curr = (curr+1) % workingServers.length;
+    // weighted pool bna rhe hain. jisme powerful server 3 baar, medium 2 baar, weak 1 baar aayega
+    const pool = [];
+    workingServers.forEach(server => {
+        for(let i = 0; i < server.weight; i++){
+            pool.push(server);
+        }
+    })
+    // using round robin
+    const selectedServer = pool[curr % pool.length];
+    curr = (curr+1) % pool.length;
 
     selectedServer.requests += 1; //requests ke count increase krr rhe hain.
 
-    return selectedServer;   //Round robin ke alawa hmm aur kya use kr skte hain, 1) Least connection: jis serevr pr kam load ho. 
+    return selectedServer; 
     // weighted: powerful server ko zyada traffic.
 }
 
@@ -180,15 +190,3 @@ setInterval(() => {
     });
 }, 5000);
 
-
-//Tumhare load balancer mein kya kami hai?"*
-
-//**Yeh jawab do — khud bolna interviewer ko impress karta hai:**
-
-//1. Session persistence nahi hai — ek user baar baar alag server pe jaata hai
-
-//2. HTTPS support nahi hai — sirf HTTP hai
-
-//3. Rate limiting nahi hai — ek user hazaar requests bhej sakta hai
-
-//4. Metrics nahi hain — kitni requests gayi kahan, koi tracking nahi
