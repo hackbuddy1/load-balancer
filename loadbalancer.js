@@ -3,9 +3,37 @@ const http = require('http');  // require NOde.js ka module system hain jaise py
 //using weighted round robin algorithm. powerful server ko zyada traffic dena.
 const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3}, {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2}, {host: 'server3', port: 1390, working: true, requests: 0, weight: 1}];
 // server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
+
+const rateLimit = {}; // will store ip address
+const LIMIT = 10; // 10 requests per minute per user
+const Window = 60*1000;  // 1 minute
 let curr =0;
 
-http.createServer((req, res) => {    // server bna rhe hain. req = request, res = response. 
+http.createServer((req, res) => {   
+    
+    // server bna rhe hain. req = request, res = response. 
+    console.log('IP:', req.socket.remoteAddress, 'Count:', rateLimit[req.socket.remoteAddress]?.count);
+
+    const IP = req.socket.remoteAddress;  // ip address mil jayega
+
+    if(!rateLimit[IP]){
+        rateLimit[IP] = {
+            count: 0
+        };
+        setTimeout(() => {
+            delete rateLimit[IP]; // ek minute baad ip address delete kr denge. 
+        }, Window);
+    }
+
+    if(rateLimit[IP].count > LIMIT){
+        res.writeHead(429, { 'Content-Type': 'text/plain'});
+        res.end('Too many requests! Please try again later.');
+        return;
+    }
+
+    rateLimit[IP].count += 1;
+
+    
     
     if(req.url === '/dashboard'){
         const data = {
