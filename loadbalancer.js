@@ -4,6 +4,11 @@ const http = require('http');  // require NOde.js ka module system hain jaise py
 const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3}, {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2}, {host: 'server3', port: 1390, working: true, requests: 0, weight: 1}];
 // server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
 
+const metrics = {
+    RequestrsAccepted: 0,          //dashboard for admin. kitne request aaye, kitne reject hue, average response time kya hain.
+    RequestsRejected: 0,
+    totalResponseTime: 0,
+}
 const rateLimit = {}; // will store ip address
 const LIMIT = 10; // 10 requests per minute per user
 const Window = 60*1000;  // 1 minute
@@ -12,7 +17,6 @@ let curr =0;
 http.createServer((req, res) => {   
     
     // server bna rhe hain. req = request, res = response. 
-    console.log('IP:', req.socket.remoteAddress, 'Count:', rateLimit[req.socket.remoteAddress]?.count);
 
     const IP = req.socket.remoteAddress;  // ip address mil jayega
 
@@ -25,7 +29,8 @@ http.createServer((req, res) => {
         }, Window);
     }
 
-    if(rateLimit[IP].count > LIMIT){
+    if(rateLimit[IP].count >= LIMIT){
+        metrics.RequestsRejected += 1;  //requests rejected ka count
         res.writeHead(429, { 'Content-Type': 'text/plain'});
         res.end('Too many requests! Please try again later.');
         return;
@@ -38,6 +43,11 @@ http.createServer((req, res) => {
     if(req.url === '/dashboard'){
         const data = {
             totalRequests: servers.reduce((sum, s) => sum+s.requests, 0),
+            blockedRequests: metrics.RequestsRejected,
+            allowedRequests: metrics.RequestrsAccepted,
+            averageResponseTime: metrics.RequestrsAccepted > 0 
+            ? (metrics.totalResponseTime / metrics.RequestrsAccepted).toFixed(2) + ' ms' 
+            : 'N/A',
             servers: servers.map(s => ({
                 port: s.port,
                 working: s.working,
@@ -83,6 +93,17 @@ http.createServer((req, res) => {
             <div class="stat-number" id="total">-</div>
             <div class="stat-label">Total Requests</div>
         </div>
+
+        <div class="stat-card">
+        <div class="stat-number" id="allowed" style="color:#22c55e">-</div>
+        <div class="stat-label">Allowed</div>
+        </div>
+
+        <div class="stat-card">
+        <div class="stat-number" id="blocked" style="color:#ef4444">-</div>
+        <div class="stat-label">Blocked (429)</div>
+        </div>
+
         <div class="stat-card">
             <div class="stat-number" id="alive-count">-</div>
             <div class="stat-label">Alive Servers</div>
@@ -90,6 +111,11 @@ http.createServer((req, res) => {
         <div class="stat-card">
             <div class="stat-number" id="dead-count">-</div>
             <div class="stat-label">Dead Servers</div>
+        </div>
+
+        <div class="stat-card">
+        <div class="stat-number" id="avg-rt" style="color:#f59e0b">-</div>
+        <div class="stat-label">Avg Response (ms)</div>
         </div>
     </div>
 
@@ -102,6 +128,9 @@ http.createServer((req, res) => {
             const data = await res.json();
 
             document.getElementById('total').textContent = data.totalRequests;
+            document.getElementById('allowed').textContent = data.allowedRequests;
+            document.getElementById('blocked').textContent = data.blockedRequests;
+            document.getElementById('avg-rt').textContent = data.averageResponseTime;
             document.getElementById('alive-count').textContent = data.servers.filter(s => s.working).length;
             document.getElementById('dead-count').textContent = data.servers.filter(s => !s.working).length;
 
@@ -149,7 +178,10 @@ http.createServer((req, res) => {
         headers: req.headers,
     };
 
+    const start = Date.now();
     const proxy = http.request(options, (serverRes) => {
+        metrics.RequestrsAccepted += 1;
+        metrics.totalResponseTime += (Date.now() - start);
         res.writeHead(serverRes.statusCode, serverRes.headers);
         serverRes.pipe(res);  // worker server ko request bhej rhe. werker server ne jo status and headers diye woh browser ko wapas bhej rhe
     }); //res browser tk pipe kr rhe hain. 
@@ -168,6 +200,8 @@ function healthCheck(server){
         path: '/',
         method: 'GET',
     };
+
+    const start = Date.now();  //request start krne ke time ka record rkh rhe hain. response aane ke baad end time ka record rkhenge. dono me se difference nikalenge to hume response time mil jayega. usko totalResponseTime me add krdenge. isse hume average response time nikalne me help milegi.
 
     const req = http.request(options, (res) => {
         if(res.statusCode === 200){
