@@ -1,7 +1,9 @@
 const http = require('http');  // require NOde.js ka module system hain jaise python me use krte hain import ussi tarah node.js me use krte hain require.
 
 //using weighted round robin algorithm. powerful server ko zyada traffic dena.
-const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3}, {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2}, {host: 'server3', port: 1390, working: true, requests: 0, weight: 1}];
+const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3, connections: 0}, 
+    {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2, connections: 0}, 
+    {host: 'server3', port: 1390, working: true, requests: 0, weight: 1, connections: 0}];
 // server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
 
 const metrics = {
@@ -9,6 +11,8 @@ const metrics = {
     RequestsRejected: 0,
     totalResponseTime: 0,
 }
+
+let algo = 'round-robin';
 const rateLimit = {}; // will store ip address
 const LIMIT = 10; // 10 requests per minute per user
 const Window = 60*1000;  // 1 minute
@@ -29,7 +33,7 @@ http.createServer((req, res) => {
         }, Window);
     }
 
-    if(rateLimit[IP].count >= LIMIT){
+    if(rateLimit[IP].count >= LIMIT && req.url !== '/ui' && req.url !== '/dashboard'){
         metrics.RequestsRejected += 1;  //requests rejected ka count
         res.writeHead(429, { 'Content-Type': 'text/plain'});
         res.end('Too many requests! Please try again later.');
@@ -39,12 +43,31 @@ http.createServer((req, res) => {
     rateLimit[IP].count += 1;
 
     
-    
+    if(req.url === '/change-algo' && req.method === 'POST'){
+        let body = '';
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+        req.on('end', () => {
+            const {algo: newAlgo} = JSON.parse(body);
+
+            if(algo === 'round-robin' || algo === 'least-connections'){
+                algo = newAlgo;
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: `Algorithm switched to ${algo}` }));
+            } else{
+                res.writeHead(400);
+                res.end('Invalid algorithm. Use round-robin or least-connections');
+            }
+        });
+        return;
+    }
     if(req.url === '/dashboard'){
         const data = {
             totalRequests: servers.reduce((sum, s) => sum+s.requests, 0),
             blockedRequests: metrics.RequestsRejected,
             allowedRequests: metrics.RequestrsAccepted,
+            algorithm: algo,
             averageResponseTime: metrics.RequestrsAccepted > 0 
             ? (metrics.totalResponseTime / metrics.RequestrsAccepted).toFixed(2) + ' ms' 
             : 'N/A',
@@ -52,6 +75,7 @@ http.createServer((req, res) => {
                 port: s.port,
                 working: s.working,
                 requests: s.requests,
+                connections: s.connections,
             })),
         };
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -67,6 +91,23 @@ http.createServer((req, res) => {
 <head>
     <title>Load Balancer Dashboard</title>
     <style>
+
+    <div style="margin-top: 24px; text-align: center;">
+    <span style="color:#94a3b8; margin-right: 12px;">Current Algorithm:</span>
+    <span id="current-algo" style="color:#38bdf8; font-weight:bold;">-</span>
+    <div style="margin-top: 12px; display:flex; gap:12px; justify-content:center;">
+        <button onclick="switchAlgo('round-robin')" 
+            style="background:#1e293b; color:white; border:1px solid #38bdf8; 
+            padding:8px 20px; border-radius:8px; cursor:pointer;">
+            Round Robin
+        </button>
+        <button onclick="switchAlgo('least-connections')" 
+            style="background:#1e293b; color:white; border:1px solid #22c55e; 
+            padding:8px 20px; border-radius:8px; cursor:pointer;">
+            Least Connections
+        </button>
+    </div>
+</div>
         body { font-family: Arial, sans-serif; background: #0f172a; color: white; padding: 30px; }
         h1 { color: #38bdf8; margin-bottom: 24px; }
         .stats { display: flex; gap: 16px; margin-bottom: 24px; }
@@ -120,6 +161,22 @@ http.createServer((req, res) => {
     </div>
 
     <div id="servers"></div>
+    <div style="margin-top: 24px; text-align: center;">
+        <span style="color:#94a3b8; margin-right: 12px;">Current Algorithm:</span>
+        <span id="current-algo" style="color:#38bdf8; font-weight:bold;">-</span>
+        <div style="margin-top: 12px; display:flex; gap:12px; justify-content:center;">
+            <button onclick="switchAlgo('round-robin')"
+                style="background:#1e293b; color:white; border:1px solid #38bdf8;
+                padding:8px 20px; border-radius:8px; cursor:pointer;">
+                Round Robin
+            </button>
+            <button onclick="switchAlgo('least-connections')"
+                style="background:#1e293b; color:white; border:1px solid #22c55e;
+                padding:8px 20px; border-radius:8px; cursor:pointer;">
+                Least Connections
+            </button>
+        </div>
+    </div>
     <div class="refresh" id="refresh-time">Updating...</div>
 
     <script>
@@ -131,6 +188,7 @@ http.createServer((req, res) => {
             document.getElementById('allowed').textContent = data.allowedRequests;
             document.getElementById('blocked').textContent = data.blockedRequests;
             document.getElementById('avg-rt').textContent = data.averageResponseTime;
+            document.getElementById('current-algo').textContent = data.algorithm;
             document.getElementById('alive-count').textContent = data.servers.filter(s => s.working).length;
             document.getElementById('dead-count').textContent = data.servers.filter(s => !s.working).length;
 
@@ -150,6 +208,15 @@ http.createServer((req, res) => {
 
             document.getElementById('refresh-time').textContent = 
                 'Last updated: ' + new Date().toLocaleTimeString();
+        }
+
+        async function switchAlgo(newAlgo) {
+            await fetch('/change-algo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ algo: newAlgo })
+            });
+            updateDashboard();
         }
 
         updateDashboard();
@@ -182,6 +249,7 @@ http.createServer((req, res) => {
     const proxy = http.request(options, (serverRes) => {
         metrics.RequestrsAccepted += 1;
         metrics.totalResponseTime += (Date.now() - start);
+        selectedServer.connections -= 1;
         res.writeHead(serverRes.statusCode, serverRes.headers);
         serverRes.pipe(res);  // worker server ko request bhej rhe. werker server ne jo status and headers diye woh browser ko wapas bhej rhe
     }); //res browser tk pipe kr rhe hain. 
@@ -229,21 +297,26 @@ function updateServer(){
         return null;
     }
 
-    // weighted pool bna rhe hain. jisme powerful server 3 baar, medium 2 baar, weak 1 baar aayega
-    const pool = [];
-    workingServers.forEach(server => {
-        for(let i = 0; i < server.weight; i++){
-            pool.push(server);
-        }
-    })
-    // using round robin
-    const selectedServer = pool[curr % pool.length];
-    curr = (curr+1) % pool.length;
+    let selectedServer;
 
-    selectedServer.requests += 1; //requests ke count increase krr rhe hain.
+    if(algo === 'round-robin'){
+        const pool = [];
+        workingServers.forEach(server => {
+            for(let i = 0; i < server.weight; i++){
+                pool.push(server);
+            }
+        });
+        selectedServer = pool[curr % pool.length];
+        curr = (curr + 1) % pool.length;
+    } else if(algo === 'least-connections'){
+        selectedServer = workingServers.reduce((min, server) => {
+            return server.connections < min.connections ? server : min;
+        });
+    }
 
-    return selectedServer; 
-    // weighted: powerful server ko zyada traffic.
+    selectedServer.requests += 1;
+    selectedServer.connections += 1; 
+    return selectedServer;
 }
 
 setInterval(() => {
