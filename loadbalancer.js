@@ -1,9 +1,9 @@
 const http = require('http');  // require NOde.js ka module system hain jaise python me use krte hain import ussi tarah node.js me use krte hain require.
 
 //using weighted round robin algorithm. powerful server ko zyada traffic dena.
-const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3, connections: 0}, 
-    {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2, connections: 0}, 
-    {host: 'server3', port: 1390, working: true, requests: 0, weight: 1, connections: 0}];
+const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}, 
+    {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}, 
+    {host: 'server3', port: 1390, working: true, requests: 0, weight: 1, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}];
 // server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
 
 const metrics = {
@@ -15,6 +15,8 @@ const metrics = {
 let algo = 'round-robin';
 const rateLimit = {}; // will store ip address
 const LIMIT = 10; // 10 requests per minute per user
+const failLimit = 3; // 3 brr fail hone prr -> open
+const retryTime = 30 * 1000; // 30 sec baad half-open hoga
 const Window = 60*1000;  // 1 minute
 let curr =0;
 
@@ -76,6 +78,8 @@ http.createServer((req, res) => {
                 working: s.working,
                 requests: s.requests,
                 connections: s.connections,
+                state: s.state,
+                failures: s.failures,
             })),
         };
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -199,7 +203,10 @@ http.createServer((req, res) => {
                         <div class="dot \${s.working ? 'alive' : 'dead'}"></div>
                         Server \${s.port}
                     </div>
-                    <div class="requests">Requests: \${s.requests}</div>
+                    <div class="requests">Requests: \${s.requests} | Failures: \${s.failures}</div> 
+                    <div style="font-size:11px; margin-top:4px; color: \${s.state === 'CLOSED' ? '#22c55e' : s.state === 'HALF-OPEN' ? '#f59e0b' : '#ef4444'}">
+                        Circuit: \${s.state}
+                    </div>
                     <div class="badge \${s.working ? 'badge-alive' : 'badge-dead'}">
                         \${s.working ? 'ALIVE' : 'DEAD'}
                     </div>
@@ -255,34 +262,58 @@ http.createServer((req, res) => {
     }); //res browser tk pipe kr rhe hain. 
 
     proxy.on('error', () => {
+        tripCircuit(selectedServer);  
+        selectedServer.connections -= 1;
         res.writeHead(502);
         res.end('Cannot connect through server.');
     });
     req.pipe(proxy);
 }).listen(8080);
 
+function tripCircuit(server){
+    server.failures += 1;
+    if(server.failures >= failLimit){
+        server.state = 'OPEN';
+        server.working = false;
+        server.nextRetry = Date.now() + retryTime; // 30 sec baad phir se retry krenge
+    }
+}
+
+function resetCircuit(server) {
+    server.failures = 0;
+    server.state = 'CLOSED';
+    server.working = true;
+    server.nextRetry = null;
+    console.log(`Circuit CLOSED for Server ${server.port} — recovered!`);
+}
+
+function checkHalfOpen(server) {
+    if (server.state === 'OPEN' && Date.now() >= server.nextRetry) {
+        server.state = 'HALF-OPEN';
+        console.log(`Circuit HALF-OPEN for Server ${server.port} — testing...`);
+    }
+}
+
 function healthCheck(server){
+    checkHalfOpen(server);
+    if (server.state === 'OPEN') return;
     const options = {
         hostname: server.host,
         port: server.port,
         path: '/',
         method: 'GET',
-    };
-
-    const start = Date.now();  //request start krne ke time ka record rkh rhe hain. response aane ke baad end time ka record rkhenge. dono me se difference nikalenge to hume response time mil jayega. usko totalResponseTime me add krdenge. isse hume average response time nikalne me help milegi.
+    }; 
 
     const req = http.request(options, (res) => {
         if(res.statusCode === 200){
-            server.working = true;
-            console.log(`Server ${server.port} is working.`);
+            resetCircuit(server); 
         } else{
-            server.working = false;
-            console.log(`Server ${server.port} is not working.`);
+            tripCircuit(server);
         }
     });
 
     req.on('error', () => {
-        server.working = false;
+        tripCircuit(server);     
         console.log(`Server ${server.port} is dead!`);
     });
 
