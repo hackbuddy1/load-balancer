@@ -1,14 +1,12 @@
 # HTTP Load Balancer
 
-A production-style HTTP load balancer built from scratch in Node.js, with no external load-balancing libraries. It distributes traffic across multiple backend servers and includes the core resilience patterns used in real-world systems — weighted load distribution, automatic failover, rate limiting, and circuit breaking.
-
-Repository: [github.com/hackbuddy1/load-balancer](https://github.com/hackbuddy1/load-balancer)
+A production-style HTTP load balancer built from scratch in Node.js, with no external load-balancing libraries. It distributes traffic across multiple backend servers and includes the core resilience patterns used in real-world systems : weighted load distribution, automatic failover, rate limiting, and circuit breaking.
 
 ---
 
 ## Why this project exists
 
-Most "load balancer" tutorials stop at round robin. This one goes further by implementing the failure-handling logic that production load balancers (NGINX, AWS ELB, Envoy) actually rely on — because a load balancer's real job isn't just distributing traffic, it's *surviving failure*.
+Most load balancer tutorials stop at round robin. This one goes further by implementing the failure-handling logic that production load balancers (NGINX, AWS ELB, Envoy) actually rely on because a load balancer's real job isn't just distributing traffic, it's *surviving failure*.
 
 ---
 
