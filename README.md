@@ -202,17 +202,6 @@ Kept the scope focused on load balancing logic. TLS termination would typically 
 
 ---
 
-## Possible extensions
-
-- [ ] TLS/HTTPS termination
-- [ ] Sticky sessions (session affinity) for stateful backends
-- [ ] Shared rate-limit store (Redis) for multi-instance deployments
-- [ ] Persistent metrics (Prometheus + Grafana)
-- [ ] Graceful shutdown (drain in-flight requests before stopping)
-- [ ] Config file instead of hardcoded constants
-
----
-
 ## License
 
 MIT
