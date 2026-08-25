@@ -1,13 +1,13 @@
-const http = require('http');  // require NOde.js ka module system hain jaise python me use krte hain import ussi tarah node.js me use krte hain require.
+const http = require('http');
 
-//using weighted round robin algorithm. powerful server ko zyada traffic dena.
+
 const servers = [{ host: 'server1', port: 1370, working: true, requests: 0, weight: 3, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}, 
     {host: 'server2', port: 1380, working: true, requests: 0,  weight: 2, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}, 
     {host: 'server3', port: 1390, working: true, requests: 0, weight: 1, connections: 0, failures: 0, state: 'CLOSED', nextRetry: null}];
-// server1 = docker container ka naam. we use it because docker me hrr ek container alag-alag network prr hota hain- ek container dusre ko localhost se nhi dhund skta hain. 
+
 
 const metrics = {
-    RequestrsAccepted: 0,          //dashboard for admin. kitne request aaye, kitne reject hue, average response time kya hain.
+    RequestrsAccepted: 0,          
     RequestsRejected: 0,
     totalResponseTime: 0,
 }
